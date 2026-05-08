@@ -1,10 +1,23 @@
+from django.shortcuts import render
 from rest_framework import viewsets
 from rest_framework.permissions import AllowAny
-from .models import Exercise, Program, Category, Motivation, Diet, Supplement
+from .models import Exercise, Program, Category, Motivation, Diet, Supplement, User
 from .serializers import (
     ExerciseSerializer, ProgramSerializer, CategorySerializer,
     MotivationSerializer, DietSerializer, SupplementSerializer
 )
+
+
+def landing_view(request):
+    """Sector-O Backend Landing Page"""
+    context = {
+        'total_users': User.objects.count(),
+        'total_exercises': Exercise.objects.count(),
+        'total_programs': Program.objects.count(),
+    }
+    return render(request, 'landing.html', context)
+
+
 
 class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Category.objects.all()
