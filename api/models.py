@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.utils import timezone
+from django.utils.text import slugify
 import random, string
 
 # ───── Custom User ─────
@@ -113,7 +114,7 @@ class Exercise(models.Model):
     
     equipment = models.JSONField(default=list, blank=True)
     
-    from django.utils.text import slugify
+
     def save(self, *args, **kwargs):
         if not self.slug and self.name_en:
             self.slug = slugify(self.name_en)
