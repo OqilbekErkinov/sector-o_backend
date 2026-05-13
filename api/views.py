@@ -24,6 +24,9 @@ class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = CategorySerializer
     permission_classes = [AllowAny]
 
+from rest_framework.decorators import action
+from rest_framework.response import Response
+
 class ExerciseViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Exercise.objects.all()
     serializer_class = ExerciseSerializer
@@ -35,6 +38,16 @@ class ExerciseViewSet(viewsets.ReadOnlyModelViewSet):
         if category_slug:
             queryset = queryset.filter(category__slug=category_slug)
         return queryset
+
+    @action(detail=True, methods=['post'], permission_classes=[AllowAny])
+    def increment_views(self, request, pk=None):
+        try:
+            exercise = self.get_object()
+            exercise.views += 1
+            exercise.save()
+            return Response({'status': 'views incremented', 'total_views': exercise.views})
+        except:
+            return Response({'error': 'Exercise not found'}, status=404)
 
 class ProgramViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Program.objects.all()

@@ -113,6 +113,8 @@ class Exercise(models.Model):
     mistakes_en = models.JSONField(default=list, blank=True)
     
     equipment = models.JSONField(default=list, blank=True)
+    views = models.PositiveIntegerField(default=0)
+    recommended_sets = models.CharField(max_length=100, default='3-4 sets, 8-12 reps', blank=True)
     
 
     def save(self, *args, **kwargs):

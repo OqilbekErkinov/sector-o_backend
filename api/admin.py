@@ -9,11 +9,12 @@ class CategoryAdmin(ModelAdmin):
 
 @admin.register(Exercise)
 class ExerciseAdmin(ModelAdmin):
-    list_display = ('name_en', 'category', 'difficulty', 'duration')
+    list_display = ('name_en', 'category', 'difficulty', 'duration', 'views')
     list_filter = ('category', 'difficulty')
     search_fields = ('name_en', 'name_uz', 'name_ru')
+    readonly_fields = ('views',)
     fieldsets = (
-        ('Basic Info', {'fields': ('category', 'difficulty', 'duration', 'img', 'video', 'equipment')}),
+        ('Basic Info', {'fields': ('category', 'difficulty', 'duration', 'recommended_sets', 'img', 'video', 'equipment', 'views')}),
         ('English Content', {'fields': ('name_en', 'description_en', 'instructions_en', 'muscles_en', 'mistakes_en')}),
         ('Uzbek Content', {'fields': ('name_uz', 'description_uz', 'instructions_uz', 'muscles_uz', 'mistakes_uz')}),
         ('Russian Content', {'fields': ('name_ru', 'description_ru', 'instructions_ru', 'muscles_ru', 'mistakes_ru')}),
