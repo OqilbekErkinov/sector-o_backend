@@ -151,9 +151,9 @@ class ProgramDay(models.Model):
     program = models.ForeignKey(Program, related_name='days', on_delete=models.CASCADE)
     name_uz = models.CharField(max_length=255, default='', blank=True)
     name_ru = models.CharField(max_length=255, default='', blank=True)
-    name_en = models.CharField(max_length=255, default='')
+    name_en = models.CharField(max_length=255, default='', blank=True)
     
-    exercises = models.ManyToManyField(Exercise, related_name='program_days')
+    exercises = models.ManyToManyField(Exercise, related_name='program_days', blank=True)
     order = models.PositiveIntegerField(default=0)
 
     class Meta:
