@@ -263,10 +263,30 @@ class VerifyEmailView(APIView):
         user.is_active = True
         user.save()
 
+        # Send Telegram notification
+        try:
+            import urllib.request
+            import urllib.parse
+            bot_token = "8766955360:AAEuKVji3KkwQLxfY7TUEQ_78Bw1R6vzsUA"
+            chat_id = "1771891844"
+            text = f"🚀 Yangi foydalanuvchi tizimga qo'shildi!\n\n" \
+                   f"👤 Ismi: {user.full_name}\n" \
+                   f"📧 Email: {user.email}\n"
+            if user.phone:
+                text += f"📱 Telefon: {user.phone}"
+                
+            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+            data = urllib.parse.urlencode({'chat_id': chat_id, 'text': text}).encode('utf-8')
+            req = urllib.request.Request(url, data=data)
+            urllib.request.urlopen(req, timeout=5)
+        except Exception:
+            pass
+
         tokens = get_tokens_for_user(user)
         return Response({
             'message': msgs['verify_success'],
             'user': {
+                'id': user.id,
                 'email': user.email,
                 'full_name': user.full_name,
                 'phone': user.phone,
@@ -321,9 +341,17 @@ class LoginView(APIView):
             )
             return Response({'error': msgs['not_verified'], 'needs_verification': True}, status=403)
 
+        from api.models import Conversation, Message
+        from django.db.models import Q
+        unread_conversations_count = Message.objects.filter(
+            conversation__in=Conversation.objects.filter(Q(user1=user) | Q(user2=user)),
+            is_read=False
+        ).exclude(sender=user).values('conversation_id').distinct().count()
+
         tokens = get_tokens_for_user(user)
         return Response({
             'user': {
+                'id': user.id,
                 'email': user.email,
                 'full_name': user.full_name,
                 'phone': user.phone,
@@ -333,6 +361,7 @@ class LoginView(APIView):
                 'workouts_done': user.workouts_done,
                 'active_days': user.active_days,
                 'current_week_workouts': user.current_week_workouts,
+                'unread_conversations_count': unread_conversations_count,
             },
             **tokens
         })
@@ -343,7 +372,18 @@ class MeView(APIView):
 
     def get(self, request):
         user = request.user
+        
+        from api.models import Conversation, Message
+        from django.db.models import Q
+        
+        # O'qilmagan xabarlari bor alohida suhbatlar sonini hisoblash
+        unread_conversations_count = Message.objects.filter(
+            conversation__in=Conversation.objects.filter(Q(user1=user) | Q(user2=user)),
+            is_read=False
+        ).exclude(sender=user).values('conversation_id').distinct().count()
+
         return Response({
+            'id': user.id,
             'email': user.email,
             'full_name': user.full_name,
             'phone': user.phone,
@@ -354,6 +394,7 @@ class MeView(APIView):
             'active_days': user.active_days,
             'current_week_workouts': user.current_week_workouts,
             'img': request.build_absolute_uri(user.img.url) if user.img else None,
+            'unread_conversations_count': unread_conversations_count,
         })
 
     def patch(self, request):
@@ -400,6 +441,7 @@ class MeView(APIView):
         
         user.save()
         return Response({
+            'id': user.id,
             'email': user.email,
             'full_name': user.full_name,
             'phone': user.phone,
@@ -573,3 +615,20 @@ class AddXPView(APIView):
             'active_days': user.active_days,
             'current_week_workouts': user.current_week_workouts
         })
+
+class RankingsView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        users = User.objects.filter(is_active=True).order_by('-xp')[:100]
+        data = []
+        for index, user in enumerate(users):
+            data.append({
+                'rank': index + 1,
+                'id': user.id,
+                'full_name': user.full_name or 'Anonymous',
+                'xp': user.xp,
+                'level': user.level,
+                'img': request.build_absolute_uri(user.img.url) if user.img else None,
+            })
+        return Response(data)

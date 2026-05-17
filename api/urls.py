@@ -6,7 +6,10 @@ from api.views import (
 )
 from api.auth_views import (
     RegisterView, VerifyEmailView, LoginView, MeView, ResendOTPView,
-    PasswordResetRequestView, PasswordResetConfirmView, AddXPView
+    PasswordResetRequestView, PasswordResetConfirmView, AddXPView, RankingsView
+)
+from api.chat_views import (
+    ConversationListView, StartConversationView, MessageListView
 )
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -29,5 +32,11 @@ urlpatterns = [
     path('auth/password-reset/', PasswordResetRequestView.as_view(), name='password-reset'),
     path('auth/password-reset-confirm/', PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
     path('auth/add-xp/', AddXPView.as_view(), name='add-xp'),
+    path('auth/rankings/', RankingsView.as_view(), name='rankings'),
     path('auth/token/refresh/', TokenRefreshView.as_view(), name='token-refresh'),
+    
+    # Chat URLs
+    path('chat/conversations/', ConversationListView.as_view(), name='chat-conversations'),
+    path('chat/conversations/start/', StartConversationView.as_view(), name='chat-start'),
+    path('chat/conversations/<int:pk>/messages/', MessageListView.as_view(), name='chat-messages'),
 ]

@@ -68,8 +68,8 @@ class OTPCode(models.Model):
         return f"{self.email} — {self.code}"
 
 class Category(models.Model):
-    name_uz = models.CharField(max_length=100, default='')
-    name_ru = models.CharField(max_length=100, default='')
+    name_uz = models.CharField(max_length=100, default='', blank=True)
+    name_ru = models.CharField(max_length=100, default='', blank=True)
     name_en = models.CharField(max_length=100, default='')
     img = models.ImageField(upload_to='categories/', blank=True, null=True)
     slug = models.SlugField(unique=True)
@@ -86,8 +86,8 @@ class Exercise(models.Model):
     
     category = models.ForeignKey(Category, related_name='exercises', on_delete=models.SET_NULL, null=True, blank=True)
     
-    name_uz = models.CharField(max_length=255, default='')
-    name_ru = models.CharField(max_length=255, default='')
+    name_uz = models.CharField(max_length=255, default='', blank=True)
+    name_ru = models.CharField(max_length=255, default='', blank=True)
     name_en = models.CharField(max_length=255, default='')
     
     slug = models.SlugField(unique=True, null=True, blank=True)
@@ -132,8 +132,8 @@ class Program(models.Model):
         ('Advanced', 'Advanced'),
     ]
 
-    name_uz = models.CharField(max_length=255, default='')
-    name_ru = models.CharField(max_length=255, default='')
+    name_uz = models.CharField(max_length=255, default='', blank=True)
+    name_ru = models.CharField(max_length=255, default='', blank=True)
     name_en = models.CharField(max_length=255, default='')
     
     level = models.CharField(max_length=20, choices=LEVEL_CHOICES, default='Beginner')
@@ -149,8 +149,8 @@ class Program(models.Model):
 
 class ProgramDay(models.Model):
     program = models.ForeignKey(Program, related_name='days', on_delete=models.CASCADE)
-    name_uz = models.CharField(max_length=255, default='')
-    name_ru = models.CharField(max_length=255, default='')
+    name_uz = models.CharField(max_length=255, default='', blank=True)
+    name_ru = models.CharField(max_length=255, default='', blank=True)
     name_en = models.CharField(max_length=255, default='')
     
     exercises = models.ManyToManyField(Exercise, related_name='program_days')
@@ -163,8 +163,8 @@ class ProgramDay(models.Model):
         return f"{self.program.name_en} - {self.name_en}"
 
 class Motivation(models.Model):
-    quote_uz = models.TextField(default='')
-    quote_ru = models.TextField(default='')
+    quote_uz = models.TextField(default='', blank=True)
+    quote_ru = models.TextField(default='', blank=True)
     quote_en = models.TextField(default='')
     author = models.CharField(max_length=100, blank=True, null=True)
 
@@ -180,8 +180,8 @@ class Diet(models.Model):
     meal_type = models.CharField(max_length=20, choices=MEAL_CHOICES, default='Breakfast')
     icon = models.CharField(max_length=10, default='🍳')
     
-    title_uz = models.CharField(max_length=255, default='')
-    title_ru = models.CharField(max_length=255, default='')
+    title_uz = models.CharField(max_length=255, default='', blank=True)
+    title_ru = models.CharField(max_length=255, default='', blank=True)
     title_en = models.CharField(max_length=255, default='')
     
     description_uz = models.TextField(blank=True, default='')
@@ -192,15 +192,55 @@ class Diet(models.Model):
         return f"{self.meal_type}: {self.title_en}"
 
 class Supplement(models.Model):
-    name_uz = models.CharField(max_length=255, default='')
-    name_ru = models.CharField(max_length=255, default='')
+    name_uz = models.CharField(max_length=255, default='', blank=True)
+    name_ru = models.CharField(max_length=255, default='', blank=True)
     name_en = models.CharField(max_length=255, default='')
     
     benefits_uz = models.TextField(blank=True, default='')
     benefits_ru = models.TextField(blank=True, default='')
     benefits_en = models.TextField(blank=True, default='')
+
+    origin_uz = models.TextField(blank=True, default='')
+    origin_ru = models.TextField(blank=True, default='')
+    origin_en = models.TextField(blank=True, default='')
+    
+    dosage_uz = models.TextField(blank=True, default='')
+    dosage_ru = models.TextField(blank=True, default='')
+    dosage_en = models.TextField(blank=True, default='')
+    
+    timing_uz = models.TextField(blank=True, default='')
+    timing_ru = models.TextField(blank=True, default='')
+    timing_en = models.TextField(blank=True, default='')
+    
+    sources_uz = models.TextField(blank=True, default='')
+    sources_ru = models.TextField(blank=True, default='')
+    sources_en = models.TextField(blank=True, default='')
     
     img = models.ImageField(upload_to='supplements/', blank=True, null=True)
 
     def __str__(self):
         return self.name_en
+
+class Conversation(models.Model):
+    user1 = models.ForeignKey(User, related_name='conversations_started', on_delete=models.CASCADE)
+    user2 = models.ForeignKey(User, related_name='conversations_received', on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('user1', 'user2')
+
+    def __str__(self):
+        u1_name = self.user1.full_name or self.user1.email
+        u2_name = self.user2.full_name or self.user2.email
+        return f"{u1_name} & {u2_name}"
+
+class Message(models.Model):
+    conversation = models.ForeignKey(Conversation, related_name='messages', on_delete=models.CASCADE)
+    sender = models.ForeignKey(User, related_name='sent_messages', on_delete=models.CASCADE)
+    content = models.TextField()
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']

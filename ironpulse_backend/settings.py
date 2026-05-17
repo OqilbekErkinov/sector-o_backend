@@ -35,6 +35,7 @@ ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',') if os.getenv('ALLOWED_
 # Application definition
 
 INSTALLED_APPS = [
+    "daphne",
     "unfold",  # must be before django.contrib.admin
     'django.contrib.admin',
     'django.contrib.auth',
@@ -50,6 +51,7 @@ INSTALLED_APPS = [
 
     # Local
     'api',
+    'channels',
 ]
 
 # DRF
@@ -132,6 +134,13 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'ironpulse_backend.wsgi.application'
+ASGI_APPLICATION = 'ironpulse_backend.asgi.application'
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
+}
 
 
 # Database
