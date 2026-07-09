@@ -2,33 +2,37 @@ import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.contrib.auth import get_user_model
-from rest_framework_simplejwt.tokens import UntypedToken
-from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+from django.core.cache import cache
+
+from api.chat_views import WS_TICKET_CACHE_PREFIX
 
 User = get_user_model()
 
 @database_sync_to_async
-def get_user(token):
+def get_user_from_ticket(ticket):
+    cache_key = f'{WS_TICKET_CACHE_PREFIX}{ticket}'
+    user_id = cache.get(cache_key)
+    if user_id is None:
+        return None
+    cache.delete(cache_key)  # single-use
     try:
-        decoded_data = UntypedToken(token)
-        user = User.objects.get(id=decoded_data['user_id'])
-        return user
-    except (InvalidToken, TokenError, User.DoesNotExist, KeyError):
+        return User.objects.get(id=user_id)
+    except User.DoesNotExist:
         return None
 
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         query_string = self.scope['query_string'].decode()
-        token = None
-        if 'token=' in query_string:
-            token = query_string.split('token=')[1].split('&')[0]
-        
-        if token:
-            user = await get_user(token)
+        ticket = None
+        if 'ticket=' in query_string:
+            ticket = query_string.split('ticket=')[1].split('&')[0]
+
+        if ticket:
+            user = await get_user_from_ticket(ticket)
             if user:
                 self.scope['user'] = user
                 self.room_group_name = f'user_{user.id}'
-                
+
                 # Join room group
                 await self.channel_layer.group_add(
                     self.room_group_name,

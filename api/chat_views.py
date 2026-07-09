@@ -1,11 +1,29 @@
+import secrets
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from django.core.cache import cache
 from django.db.models import Q
 from django.contrib.auth import get_user_model
 from api.models import Conversation, Message
 
 User = get_user_model()
+
+WS_TICKET_TTL = 30  # seconds — just long enough for the client to open the socket
+WS_TICKET_CACHE_PREFIX = 'ws_ticket:'
+
+
+class WSTicketView(APIView):
+    """Issues a short-lived, single-use ticket for authenticating the chat
+    WebSocket handshake, so the long-lived JWT never has to be put in a URL
+    (and therefore never ends up in server/proxy access logs)."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        ticket = secrets.token_urlsafe(32)
+        cache.set(f'{WS_TICKET_CACHE_PREFIX}{ticket}', request.user.id, timeout=WS_TICKET_TTL)
+        return Response({'ticket': ticket, 'expires_in': WS_TICKET_TTL})
 
 class ConversationListView(APIView):
     permission_classes = [IsAuthenticated]

@@ -1,6 +1,10 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin, TabularInline
-from .models import Exercise, Program, ProgramDay, Category, Motivation, Diet, Supplement, User, OTPCode, Conversation, Message
+from .models import (
+    Exercise, Program, ProgramDay, Category, Motivation, Diet, Supplement, User, OTPCode,
+    Conversation, Message, WorkoutLog, WorkoutExerciseEntry, WorkoutSet, NutritionLog,
+    UserProgram, UserProgramDay, UserProgramExercise,
+)
 
 @admin.register(Category)
 class CategoryAdmin(ModelAdmin):
@@ -117,3 +121,56 @@ class MessageAdmin(ModelAdmin):
     def content_snippet(self, obj):
         return obj.content[:50] + '...' if len(obj.content) > 50 else obj.content
     content_snippet.short_description = 'Xabar matni'
+
+
+class WorkoutSetInline(TabularInline):
+    model = WorkoutSet
+    extra = 0
+    tab = True
+
+class WorkoutExerciseEntryInline(TabularInline):
+    model = WorkoutExerciseEntry
+    extra = 0
+    tab = True
+
+@admin.register(WorkoutLog)
+class WorkoutLogAdmin(ModelAdmin):
+    list_display = ('user', 'date', 'created_at')
+    list_filter = ('date',)
+    search_fields = ('user__email', 'user__full_name')
+    inlines = [WorkoutExerciseEntryInline]
+
+@admin.register(WorkoutExerciseEntry)
+class WorkoutExerciseEntryAdmin(ModelAdmin):
+    list_display = ('name', 'workout_log', 'exercise', 'order')
+    search_fields = ('name',)
+    inlines = [WorkoutSetInline]
+
+class UserProgramExerciseInline(TabularInline):
+    model = UserProgramExercise
+    extra = 0
+    tab = True
+
+class UserProgramDayInline(TabularInline):
+    model = UserProgramDay
+    extra = 0
+    tab = True
+
+@admin.register(UserProgram)
+class UserProgramAdmin(ModelAdmin):
+    list_display = ('name', 'user', 'is_active', 'created_at')
+    list_filter = ('is_active',)
+    search_fields = ('name', 'user__email')
+    inlines = [UserProgramDayInline]
+
+@admin.register(UserProgramDay)
+class UserProgramDayAdmin(ModelAdmin):
+    list_display = ('name', 'program', 'order')
+    search_fields = ('name',)
+    inlines = [UserProgramExerciseInline]
+
+@admin.register(NutritionLog)
+class NutritionLogAdmin(ModelAdmin):
+    list_display = ('user', 'date', 'name', 'calories', 'protein_g', 'carbs_g', 'fat_g')
+    list_filter = ('date',)
+    search_fields = ('user__email', 'user__full_name', 'name')

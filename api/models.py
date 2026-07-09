@@ -2,7 +2,7 @@ from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.utils import timezone
 from django.utils.text import slugify
-import random, string
+import secrets, string
 
 # ───── Custom User ─────
 class UserManager(BaseUserManager):
@@ -41,6 +41,13 @@ class User(AbstractBaseUser, PermissionsMixin):
     current_week_workouts = models.PositiveIntegerField(default=0)
     last_workout_date = models.DateField(null=True, blank=True)
 
+    # Nutrition goals — 0 means "not set", in which case the UI shows raw
+    # totals only and skips any %-of-goal display.
+    goal_calories = models.PositiveIntegerField(default=0)
+    goal_protein_g = models.FloatField(default=0)
+    goal_carbs_g = models.FloatField(default=0)
+    goal_fat_g = models.FloatField(default=0)
+
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = []
 
@@ -51,11 +58,19 @@ class User(AbstractBaseUser, PermissionsMixin):
 
 # ───── OTP Code ─────
 def generate_otp():
-    return ''.join(random.choices(string.digits, k=6))
+    return ''.join(secrets.choice(string.digits) for _ in range(6))
 
 class OTPCode(models.Model):
-    email = models.EmailField()
+    PURPOSE_CHOICES = [
+        ('verify', 'Email verification'),
+        ('reset', 'Password reset'),
+        ('change_email', 'Email change'),
+    ]
+    email = models.EmailField(db_index=True)
     code = models.CharField(max_length=6, default=generate_otp)
+    purpose = models.CharField(max_length=20, choices=PURPOSE_CHOICES, default='verify')
+    # Only used for purpose='change_email': the new email address pending confirmation
+    new_email = models.EmailField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     is_used = models.BooleanField(default=False)
 
@@ -244,3 +259,141 @@ class Message(models.Model):
 
     class Meta:
         ordering = ['created_at']
+
+# ───── Tracking: Workouts ─────
+class WorkoutLog(models.Model):
+    """A single training day's diary entry (e.g. 'Monday - Day 1')."""
+    user = models.ForeignKey(User, related_name='workout_logs', on_delete=models.CASCADE)
+    date = models.DateField(default=timezone.localdate, db_index=True)
+    notes = models.TextField(blank=True, default='')
+    # Which day of the user's active program (if any) this session followed —
+    # lets weekly stats report "N of M program days completed" without
+    # forcing every log to be tied to a program.
+    program_day = models.ForeignKey('UserProgramDay', related_name='logs', on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-date', '-created_at']
+
+    def __str__(self):
+        return f"{self.user.email} — {self.date}"
+
+class WorkoutExerciseEntry(models.Model):
+    """One exercise performed within a WorkoutLog (e.g. 'Barbell Curl')."""
+    MUSCLE_GROUP_CHOICES = [
+        ('chest', 'Chest'),
+        ('back', 'Back'),
+        ('shoulders', 'Shoulders'),
+        ('biceps', 'Biceps'),
+        ('triceps', 'Triceps'),
+        ('legs', 'Legs'),
+        ('abs', 'Abs'),
+        ('glutes', 'Glutes'),
+    ]
+
+    workout_log = models.ForeignKey(WorkoutLog, related_name='exercises', on_delete=models.CASCADE)
+    # Optional link to the exercise catalog — kept nullable so a deleted/renamed
+    # catalog entry never breaks a user's historical log. `name` is always the
+    # source of truth for display, resolved at creation time from either the
+    # catalog or freeform user input.
+    exercise = models.ForeignKey(Exercise, related_name='+', on_delete=models.SET_NULL, null=True, blank=True)
+    name = models.CharField(max_length=255)
+    # Always chosen by the user at log time (never inferred from the catalog),
+    # since the catalog's free-text `muscles_*` fields don't map cleanly to a
+    # fixed set of weekly-volume categories.
+    muscle_group = models.CharField(max_length=20, choices=MUSCLE_GROUP_CHOICES, blank=True, default='')
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return self.name
+
+class WorkoutSet(models.Model):
+    """A single set (weight x reps) within a WorkoutExerciseEntry."""
+    exercise_entry = models.ForeignKey(WorkoutExerciseEntry, related_name='sets', on_delete=models.CASCADE)
+    set_number = models.PositiveIntegerField(default=1)
+    weight_kg = models.FloatField(default=0)
+    reps = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['set_number']
+
+    def __str__(self):
+        return f"Set {self.set_number}: {self.weight_kg}kg x {self.reps}"
+
+# ───── Tracking: User Programs (personal workout splits) ─────
+class UserProgram(models.Model):
+    """A user's own editable workout split (e.g. 'Push/Pull/Legs'), either
+    built from scratch or copied from the catalog Program — copying takes a
+    snapshot, so editing it afterwards never touches the catalog or other
+    users. Exactly one program per user may be `is_active` at a time
+    (enforced in the view, not here, to keep this a plain model)."""
+    user = models.ForeignKey(User, related_name='workout_programs', on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    is_active = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.user.email} — {self.name}"
+
+class UserProgramDay(models.Model):
+    """A reusable day slot within a UserProgram (e.g. '1-kun (Ko'krak)').
+    Not tied to a calendar weekday — the user picks which day they're doing
+    each time they log a workout."""
+    program = models.ForeignKey(UserProgram, related_name='days', on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return f"{self.program.name} — {self.name}"
+
+class UserProgramExercise(models.Model):
+    """One exercise template within a UserProgramDay. No sets/reps/weight
+    targets are stored here — those are entered for real each time the day
+    is actually logged; this is just "what to do," not "how much"."""
+    day = models.ForeignKey(UserProgramDay, related_name='exercises', on_delete=models.CASCADE)
+    exercise = models.ForeignKey(Exercise, related_name='+', on_delete=models.SET_NULL, null=True, blank=True)
+    name = models.CharField(max_length=255)
+    muscle_group = models.CharField(max_length=20, choices=WorkoutExerciseEntry.MUSCLE_GROUP_CHOICES, blank=True, default='')
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return self.name
+
+# ───── Tracking: Nutrition ─────
+class NutritionLog(models.Model):
+    """A single food/meal entry logged by the user for a given day."""
+    MEAL_TYPE_CHOICES = [
+        ('breakfast', 'Nonushta'),
+        ('lunch', 'Tushlik'),
+        ('dinner', 'Kechki ovqat'),
+        ('pre_workout', 'Mashqdan oldin'),
+        ('post_workout', 'Mashqdan keyin'),
+        ('other', 'Boshqa'),
+    ]
+    user = models.ForeignKey(User, related_name='nutrition_logs', on_delete=models.CASCADE)
+    date = models.DateField(default=timezone.localdate, db_index=True)
+    meal_type = models.CharField(max_length=20, choices=MEAL_TYPE_CHOICES, default='other')
+    name = models.CharField(max_length=255)
+    calories = models.PositiveIntegerField(default=0)
+    protein_g = models.FloatField(default=0)
+    carbs_g = models.FloatField(default=0)
+    fat_g = models.FloatField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-date', '-created_at']
+
+    def __str__(self):
+        return f"{self.user.email} — {self.date} — {self.name}"

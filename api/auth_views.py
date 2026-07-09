@@ -1,3 +1,5 @@
+import logging
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -10,6 +12,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from api.models import OTPCode
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 def get_user_lang(request):
@@ -51,6 +54,10 @@ def get_api_messages(lang):
             'invalid_xp': 'Noto\'g\'ri XP qiymati',
             'xp_gt_zero': 'XP 0 dan katta bo\'lishi kerak',
             'xp_added': '{} XP muvaffaqiyatli qo\'shildi!',
+            'same_email': 'Bu sizning joriy emailingiz',
+            'email_change_code_sent': 'Yangi emailingizga tasdiqlash kodi yuborildi',
+            'email_change_success': 'Email muvaffaqiyatli o\'zgartirildi',
+            'invalid_avatar': 'Rasm formati yoki hajmi noto\'g\'ri (JPG/PNG/WEBP, 5MB gacha)',
         },
         'ru': {
             'email_pass_req': 'Email и пароль обязательны',
@@ -74,6 +81,10 @@ def get_api_messages(lang):
             'invalid_xp': 'Неверное значение XP',
             'xp_gt_zero': 'XP должно быть больше 0',
             'xp_added': '{} XP успешно добавлено!',
+            'same_email': 'Это ваш текущий email',
+            'email_change_code_sent': 'Код подтверждения отправлен на новый email',
+            'email_change_success': 'Email успешно изменен',
+            'invalid_avatar': 'Неверный формат или размер изображения (JPG/PNG/WEBP, до 5МБ)',
         },
         'en': {
             'email_pass_req': 'Email and password are required',
@@ -97,6 +108,10 @@ def get_api_messages(lang):
             'invalid_xp': 'Invalid XP value',
             'xp_gt_zero': 'XP must be greater than 0',
             'xp_added': '{} XP added successfully!',
+            'same_email': 'This is already your current email',
+            'email_change_code_sent': 'A verification code has been sent to your new email',
+            'email_change_success': 'Email changed successfully',
+            'invalid_avatar': 'Invalid image format or size (JPG/PNG/WEBP, up to 5MB)',
         }
     }
     return msgs.get(lang, msgs['uz'])
@@ -121,6 +136,13 @@ def get_email_texts(lang, action='verify'):
                 'validity_text': 'Kod 10 daqiqa amal qiladi.',
                 'warning_bold_text': 'Kodni hech kimga bermang.',
                 'warning_text': "Parolingiz xavfsizligi o'z qo'lingizda.",
+            },
+            'change_email': {
+                'title_text': 'Emailni tasdiqlash',
+                'description_text': "Ushbu emailni akkauntingizga bog'lash uchun tasdiqlash kodi:",
+                'validity_text': 'Kod 10 daqiqa amal qiladi.',
+                'warning_bold_text': 'Kodni hech kimga bermang.',
+                'warning_text': "Agar bu so'rovni siz yubormagan bo'lsangiz, kodni hech kimga bermang.",
             }
         },
         'ru': {
@@ -140,6 +162,13 @@ def get_email_texts(lang, action='verify'):
                 'validity_text': 'Код действителен 10 минут.',
                 'warning_bold_text': 'Никому не сообщайте код.',
                 'warning_text': 'Безопасность вашего пароля в ваших руках.',
+            },
+            'change_email': {
+                'title_text': 'Подтверждение email',
+                'description_text': 'Код подтверждения для привязки этого email к вашему аккаунту:',
+                'validity_text': 'Код действителен 10 минут.',
+                'warning_bold_text': 'Никому не сообщайте код.',
+                'warning_text': 'Если вы не запрашивали это, никому не сообщайте код.',
             }
         },
         'en': {
@@ -159,6 +188,13 @@ def get_email_texts(lang, action='verify'):
                 'validity_text': 'The code is valid for 10 minutes.',
                 'warning_bold_text': 'Do not share this code with anyone.',
                 'warning_text': 'Your password security is in your hands.',
+            },
+            'change_email': {
+                'title_text': 'Email Verification',
+                'description_text': 'Verification code to link this email to your account:',
+                'validity_text': 'The code is valid for 10 minutes.',
+                'warning_bold_text': 'Do not share this code with anyone.',
+                'warning_text': "If you didn't request this, do not share the code with anyone.",
             }
         }
     }
@@ -184,6 +220,7 @@ def get_tokens_for_user(user):
 
 class RegisterView(APIView):
     permission_classes = [AllowAny]
+    throttle_scope = 'auth'
 
     def post(self, request):
         lang = get_user_lang(request)
@@ -210,7 +247,7 @@ class RegisterView(APIView):
             phone=phone,
         )
 
-        otp = OTPCode.objects.create(email=email)
+        otp = OTPCode.objects.create(email=email, purpose='verify')
 
         texts = get_email_texts(lang, 'verify')
         html_message = render_to_string('api/universal_email_template.html', {
@@ -233,6 +270,7 @@ class RegisterView(APIView):
 
 class VerifyEmailView(APIView):
     permission_classes = [AllowAny]
+    throttle_scope = 'otp'
 
     def post(self, request):
         lang = get_user_lang(request)
@@ -249,7 +287,7 @@ class VerifyEmailView(APIView):
         except User.DoesNotExist:
             return Response({'error': msgs['user_not_found']}, status=404)
 
-        otp = OTPCode.objects.filter(email=email, is_used=False).order_by('-created_at').first()
+        otp = OTPCode.objects.filter(email=email, purpose='verify', is_used=False).order_by('-created_at').first()
 
         if not otp or not otp.is_valid():
             return Response({'error': msgs['code_expired']}, status=400)
@@ -263,24 +301,23 @@ class VerifyEmailView(APIView):
         user.is_active = True
         user.save()
 
-        # Send Telegram notification
-        try:
-            import urllib.request
-            import urllib.parse
-            bot_token = "8766955360:AAEuKVji3KkwQLxfY7TUEQ_78Bw1R6vzsUA"
-            chat_id = "1771891844"
-            text = f"🚀 Yangi foydalanuvchi tizimga qo'shildi!\n\n" \
-                   f"👤 Ismi: {user.full_name}\n" \
-                   f"📧 Email: {user.email}\n"
-            if user.phone:
-                text += f"📱 Telefon: {user.phone}"
-                
-            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-            data = urllib.parse.urlencode({'chat_id': chat_id, 'text': text}).encode('utf-8')
-            req = urllib.request.Request(url, data=data)
-            urllib.request.urlopen(req, timeout=5)
-        except Exception:
-            pass
+        # Send Telegram notification (only if configured via env vars)
+        if settings.TELEGRAM_BOT_TOKEN and settings.TELEGRAM_CHAT_ID:
+            try:
+                import urllib.request
+                import urllib.parse
+                text = f"🚀 Yangi foydalanuvchi tizimga qo'shildi!\n\n" \
+                       f"👤 Ismi: {user.full_name}\n" \
+                       f"📧 Email: {user.email}\n"
+                if user.phone:
+                    text += f"📱 Telefon: {user.phone}"
+
+                url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMessage"
+                data = urllib.parse.urlencode({'chat_id': settings.TELEGRAM_CHAT_ID, 'text': text}).encode('utf-8')
+                req = urllib.request.Request(url, data=data)
+                urllib.request.urlopen(req, timeout=5)
+            except Exception:
+                logger.exception("Failed to send Telegram new-user notification for %s", user.email)
 
         tokens = get_tokens_for_user(user)
         return Response({
@@ -293,6 +330,14 @@ class VerifyEmailView(APIView):
                 'xp': user.xp,
                 'level': user.level,
                 'weekly_goal': user.weekly_goal,
+            'goal_calories': user.goal_calories,
+            'goal_protein_g': user.goal_protein_g,
+            'goal_carbs_g': user.goal_carbs_g,
+            'goal_fat_g': user.goal_fat_g,
+                'goal_calories': user.goal_calories,
+                'goal_protein_g': user.goal_protein_g,
+                'goal_carbs_g': user.goal_carbs_g,
+                'goal_fat_g': user.goal_fat_g,
                 'workouts_done': user.workouts_done,
                 'active_days': user.active_days,
                 'current_week_workouts': user.current_week_workouts,
@@ -303,6 +348,7 @@ class VerifyEmailView(APIView):
 
 class LoginView(APIView):
     permission_classes = [AllowAny]
+    throttle_scope = 'auth'
 
     def post(self, request):
         lang = get_user_lang(request)
@@ -323,8 +369,8 @@ class LoginView(APIView):
             return Response({'error': msgs['wrong_creds']}, status=401)
 
         if not user.is_active:
-            OTPCode.objects.filter(email=email, is_used=False).update(is_used=True)
-            otp = OTPCode.objects.create(email=email)
+            OTPCode.objects.filter(email=email, purpose='verify', is_used=False).update(is_used=True)
+            otp = OTPCode.objects.create(email=email, purpose='verify')
             texts = get_email_texts(lang, 'verify')
             html_message = render_to_string('api/universal_email_template.html', {
                 'full_name': user.full_name or 'User',
@@ -358,6 +404,14 @@ class LoginView(APIView):
                 'xp': user.xp,
                 'level': user.level,
                 'weekly_goal': user.weekly_goal,
+            'goal_calories': user.goal_calories,
+            'goal_protein_g': user.goal_protein_g,
+            'goal_carbs_g': user.goal_carbs_g,
+            'goal_fat_g': user.goal_fat_g,
+                'goal_calories': user.goal_calories,
+                'goal_protein_g': user.goal_protein_g,
+                'goal_carbs_g': user.goal_carbs_g,
+                'goal_fat_g': user.goal_fat_g,
                 'workouts_done': user.workouts_done,
                 'active_days': user.active_days,
                 'current_week_workouts': user.current_week_workouts,
@@ -390,6 +444,10 @@ class MeView(APIView):
             'xp': user.xp,
             'level': user.level,
             'weekly_goal': user.weekly_goal,
+            'goal_calories': user.goal_calories,
+            'goal_protein_g': user.goal_protein_g,
+            'goal_carbs_g': user.goal_carbs_g,
+            'goal_fat_g': user.goal_fat_g,
             'workouts_done': user.workouts_done,
             'active_days': user.active_days,
             'current_week_workouts': user.current_week_workouts,
@@ -400,10 +458,10 @@ class MeView(APIView):
     def patch(self, request):
         lang = get_user_lang(request)
         msgs = get_api_messages(lang)
-        
+
         user = request.user
         data = request.data
-        
+
         full_name = data.get('full_name')
         phone = data.get('phone')
         email = data.get('email')
@@ -419,28 +477,73 @@ class MeView(APIView):
                 user.weekly_goal = int(weekly_goal)
             except ValueError:
                 pass
+
+        goal_calories = data.get('goal_calories')
+        if goal_calories is not None:
+            try:
+                user.goal_calories = max(0, int(goal_calories))
+            except (TypeError, ValueError):
+                pass
+        for field in ('goal_protein_g', 'goal_carbs_g', 'goal_fat_g'):
+            value = data.get(field)
+            if value is not None:
+                try:
+                    setattr(user, field, max(0.0, float(value)))
+                except (TypeError, ValueError):
+                    pass
+
+        email_change_pending = False
         if email is not None:
             email = email.lower().strip()
             if email != user.email:
+                if email == '':
+                    return Response({'error': msgs['email_req']}, status=400)
                 if User.objects.filter(email=email).exists():
                     return Response({'error': msgs['email_taken']}, status=400)
-                user.email = email
-        
+                # Email is NOT changed here — a confirmation code is sent to the
+                # new address first; the change only applies once that code is
+                # verified via ConfirmEmailChangeView. Prevents account takeover
+                # by simply PATCHing someone else's email into your session.
+                OTPCode.objects.filter(email=user.email, purpose='change_email', is_used=False).update(is_used=True)
+                otp = OTPCode.objects.create(email=user.email, purpose='change_email', new_email=email)
+                texts = get_email_texts(lang, 'change_email')
+                html_message = render_to_string('api/universal_email_template.html', {
+                    'full_name': user.full_name or 'User',
+                    'verification_code': otp.code,
+                    **texts
+                })
+                send_mail(
+                    subject=f"Sector-O — {texts['title_text']}",
+                    message=f"{texts['greeting_word']}!\n\n{texts['description_text']} {otp.code}\n\n{texts['validity_text']}",
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[email],
+                    fail_silently=False,
+                    html_message=html_message,
+                )
+                email_change_pending = True
+
         if img_data:
             import base64
             from django.core.files.base import ContentFile
+
+            MAX_AVATAR_BYTES = 5 * 1024 * 1024
+            ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
             try:
-                format, imgstr = img_data.split(';base64,')
-                ext = format.split('/')[-1]
-                img_data = ContentFile(base64.b64decode(imgstr), name=f'avatar_{user.id}.{ext}')
-                user.img = img_data
-            except:
-                pass
+                header, imgstr = img_data.split(';base64,')
+                ext = header.split('/')[-1].lower()
+                if ext not in ALLOWED_EXTENSIONS:
+                    return Response({'error': msgs['invalid_avatar']}, status=400)
+                decoded = base64.b64decode(imgstr, validate=True)
+                if len(decoded) > MAX_AVATAR_BYTES:
+                    return Response({'error': msgs['invalid_avatar']}, status=400)
+                user.img = ContentFile(decoded, name=f'avatar_{user.id}.{ext}')
+            except (ValueError, TypeError):
+                return Response({'error': msgs['invalid_avatar']}, status=400)
         elif img_data == "":
             user.img = None
-        
+
         user.save()
-        return Response({
+        response_data = {
             'id': user.id,
             'email': user.email,
             'full_name': user.full_name,
@@ -448,16 +551,63 @@ class MeView(APIView):
             'xp': user.xp,
             'level': user.level,
             'weekly_goal': user.weekly_goal,
+            'goal_calories': user.goal_calories,
+            'goal_protein_g': user.goal_protein_g,
+            'goal_carbs_g': user.goal_carbs_g,
+            'goal_fat_g': user.goal_fat_g,
             'workouts_done': user.workouts_done,
             'active_days': user.active_days,
             'current_week_workouts': user.current_week_workouts,
             'img': request.build_absolute_uri(user.img.url) if user.img else None,
-            'message': msgs['profile_updated']
+            'message': msgs['email_change_code_sent'] if email_change_pending else msgs['profile_updated'],
+        }
+        if email_change_pending:
+            response_data['email_change_pending'] = True
+        return Response(response_data)
+
+
+class ConfirmEmailChangeView(APIView):
+    permission_classes = [IsAuthenticated]
+    throttle_scope = 'otp'
+
+    def post(self, request):
+        lang = get_user_lang(request)
+        msgs = get_api_messages(lang)
+
+        user = request.user
+        code = request.data.get('code', '').strip()
+        if not code:
+            return Response({'error': msgs['email_code_req']}, status=400)
+
+        otp = OTPCode.objects.filter(
+            email=user.email, purpose='change_email', is_used=False
+        ).order_by('-created_at').first()
+
+        if not otp or not otp.is_valid():
+            return Response({'error': msgs['code_expired']}, status=400)
+
+        if otp.code != code:
+            return Response({'error': msgs['invalid_code']}, status=400)
+
+        if User.objects.filter(email=otp.new_email).exclude(pk=user.pk).exists():
+            return Response({'error': msgs['email_taken']}, status=400)
+
+        otp.is_used = True
+        otp.save()
+
+        user.email = otp.new_email
+        user.save(update_fields=['email'])
+
+        return Response({
+            'id': user.id,
+            'email': user.email,
+            'message': msgs['email_change_success'],
         })
 
 
 class ResendOTPView(APIView):
     permission_classes = [AllowAny]
+    throttle_scope = 'otp'
 
     def post(self, request):
         lang = get_user_lang(request)
@@ -472,8 +622,8 @@ class ResendOTPView(APIView):
         except User.DoesNotExist:
             return Response({'error': msgs['user_not_found']}, status=404)
 
-        OTPCode.objects.filter(email=email, is_used=False).update(is_used=True)
-        otp = OTPCode.objects.create(email=email)
+        OTPCode.objects.filter(email=email, purpose='verify', is_used=False).update(is_used=True)
+        otp = OTPCode.objects.create(email=email, purpose='verify')
 
         texts = get_email_texts(lang, 'verify')
         html_message = render_to_string('api/universal_email_template.html', {
@@ -494,6 +644,7 @@ class ResendOTPView(APIView):
 
 class PasswordResetRequestView(APIView):
     permission_classes = [AllowAny]
+    throttle_scope = 'otp'
 
     def post(self, request):
         lang = get_user_lang(request)
@@ -508,8 +659,8 @@ class PasswordResetRequestView(APIView):
         except User.DoesNotExist:
             return Response({'error': msgs['user_not_found']}, status=404)
 
-        OTPCode.objects.filter(email=email, is_used=False).update(is_used=True)
-        otp = OTPCode.objects.create(email=email)
+        OTPCode.objects.filter(email=email, purpose='reset', is_used=False).update(is_used=True)
+        otp = OTPCode.objects.create(email=email, purpose='reset')
 
         texts = get_email_texts(lang, 'reset')
         html_message = render_to_string('api/universal_email_template.html', {
@@ -530,6 +681,7 @@ class PasswordResetRequestView(APIView):
 
 class PasswordResetConfirmView(APIView):
     permission_classes = [AllowAny]
+    throttle_scope = 'otp'
 
     def post(self, request):
         lang = get_user_lang(request)
@@ -550,7 +702,7 @@ class PasswordResetConfirmView(APIView):
         except User.DoesNotExist:
             return Response({'error': msgs['user_not_found']}, status=404)
 
-        otp = OTPCode.objects.filter(email=email, is_used=False).order_by('-created_at').first()
+        otp = OTPCode.objects.filter(email=email, purpose='reset', is_used=False).order_by('-created_at').first()
 
         if not otp or not otp.is_valid():
             return Response({'error': msgs['code_expired']}, status=400)
@@ -569,19 +721,29 @@ class PasswordResetConfirmView(APIView):
 
 class AddXPView(APIView):
     permission_classes = [IsAuthenticated]
+    throttle_scope = 'auth'
+
+    # A training session currently awards 10 XP per exercise (see training.vue).
+    # No real session is tracked server-side yet, so this caps the plausible
+    # size of a single session to stop arbitrary client-supplied XP values
+    # from inflating a user's score/leaderboard rank.
+    MAX_XP_PER_REQUEST = 300
 
     def post(self, request):
         lang = get_user_lang(request)
         msgs = get_api_messages(lang)
-        
+
         try:
             xp_to_add = int(request.data.get('xp', 0))
-        except ValueError:
+        except (TypeError, ValueError):
             return Response({'error': msgs['invalid_xp']}, status=400)
 
         if xp_to_add <= 0:
             return Response({'error': msgs['xp_gt_zero']}, status=400)
-            
+
+        if xp_to_add > self.MAX_XP_PER_REQUEST:
+            return Response({'error': msgs['invalid_xp']}, status=400)
+
         user = request.user
         
         user.xp += xp_to_add

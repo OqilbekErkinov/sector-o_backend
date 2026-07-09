@@ -43,11 +43,11 @@ class ExerciseViewSet(viewsets.ReadOnlyModelViewSet):
     def increment_views(self, request, pk=None):
         try:
             exercise = self.get_object()
-            exercise.views += 1
-            exercise.save()
-            return Response({'status': 'views incremented', 'total_views': exercise.views})
-        except:
+        except Exercise.DoesNotExist:
             return Response({'error': 'Exercise not found'}, status=404)
+        exercise.views += 1
+        exercise.save(update_fields=['views'])
+        return Response({'status': 'views incremented', 'total_views': exercise.views})
 
 class ProgramViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Program.objects.all()
