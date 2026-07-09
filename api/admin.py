@@ -1,5 +1,12 @@
-from django.contrib import admin
+import openai
+from django.contrib import admin, messages
+from django.shortcuts import redirect
+from django.template.response import TemplateResponse
+from django.urls import reverse
 from unfold.admin import ModelAdmin, TabularInline
+from unfold.decorators import action
+
+from .ai_exercise import generate_exercise
 from .models import (
     Exercise, Program, ProgramDay, Category, Motivation, Diet, Supplement, User, OTPCode,
     Conversation, Message, WorkoutLog, WorkoutExerciseEntry, WorkoutSet, NutritionLog,
@@ -17,12 +24,55 @@ class ExerciseAdmin(ModelAdmin):
     list_filter = ('category', 'difficulty')
     search_fields = ('name_en', 'name_uz', 'name_ru')
     readonly_fields = ('views',)
+    actions_list = ('ai_add',)
     fieldsets = (
         ('Basic Info', {'fields': ('category', 'difficulty', 'duration', 'recommended_sets', 'img', 'video', 'equipment', 'views')}),
         ('English Content', {'fields': ('name_en', 'description_en', 'instructions_en', 'muscles_en', 'mistakes_en')}),
         ('Uzbek Content', {'fields': ('name_uz', 'description_uz', 'instructions_uz', 'muscles_uz', 'mistakes_uz')}),
         ('Russian Content', {'fields': ('name_ru', 'description_ru', 'instructions_ru', 'muscles_ru', 'mistakes_ru')}),
     )
+
+    @action(description="🤖 AI bilan qo'shish", url_path="ai-add", permissions=["add"])
+    def ai_add(self, request):
+        brief = (request.POST.get('brief') or '').strip()
+        if request.method == 'POST' and brief:
+            try:
+                data = generate_exercise(brief)
+            except openai.AuthenticationError:
+                messages.error(request, "OPENAI_API_KEY noto'g'ri yoki kiritilmagan — backend/.env faylini tekshiring.")
+            except openai.RateLimitError:
+                messages.error(request, "So'rovlar limiti oshdi — bir daqiqadan so'ng qayta urinib ko'ring.")
+            except openai.APIStatusError as exc:
+                messages.error(request, f"OpenAI API xatosi ({exc.status_code}): {exc.message}")
+            except openai.APIConnectionError:
+                messages.error(request, "Internet aloqasida xato — qayta urinib ko'ring.")
+            except Exception as exc:
+                messages.error(request, f"Xato: {exc}")
+            else:
+                slug = data.pop('category_slug', None)
+                category = Category.objects.filter(slug=slug).first() if slug else None
+                if category:
+                    data['category'] = category.pk
+                request.session['ai_exercise_prefill'] = data
+                messages.success(request, "AI ma'lumotlarni to'ldirdi — tekshirib, rasm/video qo'shib saqlang.")
+                return redirect(reverse('admin:api_exercise_add'))
+        elif request.method == 'POST':
+            messages.error(request, "Mashq haqida qisqacha ma'lumot yozing.")
+
+        context = {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': "AI bilan mashq qo'shish",
+            'brief': brief,
+        }
+        return TemplateResponse(request, 'admin/api/exercise/ai_add.html', context)
+
+    def get_changeform_initial_data(self, request):
+        initial = super().get_changeform_initial_data(request)
+        prefill = request.session.pop('ai_exercise_prefill', None)
+        if prefill:
+            initial.update(prefill)
+        return initial
 
 class ProgramDayInline(TabularInline):
     model = ProgramDay
