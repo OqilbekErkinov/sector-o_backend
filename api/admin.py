@@ -1,16 +1,20 @@
+from collections import defaultdict
+from datetime import date
+
 import openai
 from django.contrib import admin, messages
-from django.shortcuts import redirect
+from django.db.models import Q
+from django.shortcuts import get_object_or_404, redirect
 from django.template.response import TemplateResponse
 from django.urls import reverse
-from unfold.admin import ModelAdmin, TabularInline
+from unfold.admin import ModelAdmin, StackedInline, TabularInline
 from unfold.decorators import action
 
 from .ai_exercise import generate_exercise
 from .ai_motivation import generate_motivation
 from .ai_supplement import generate_supplement
 from .models import (
-    Exercise, Program, ProgramDay, Category, Motivation, Diet, Supplement, User, OTPCode,
+    Exercise, Program, ProgramDay, Category, Motivation, Supplement, User, OTPCode,
     Conversation, Message, WorkoutLog, WorkoutExerciseEntry, WorkoutSet, NutritionLog,
     UserProgram, UserProgramDay, UserProgramExercise,
 )
@@ -88,10 +92,15 @@ class ExerciseAdmin(ModelAdmin):
             initial.update(prefill)
         return initial
 
-class ProgramDayInline(TabularInline):
+class ProgramDayInline(StackedInline):
+    # StackedInline — TabularInline emas — chunki filter_horizontal vidjeti
+    # (mashq tanlash oynasi) keng va baland; tor jadval qatoriga sig'may,
+    # hammasi chalkashib qolar edi. Har bir kun endi o'z alohida, keng
+    # bo'lgan kartochkasida ko'rinadi.
     model = ProgramDay
     extra = 1
     tab = True
+    collapsible = True
     filter_horizontal = ('exercises',)
 
 @admin.register(Program)
@@ -104,12 +113,6 @@ class ProgramAdmin(ModelAdmin):
         ('Uzbek Content', {'fields': ('name_uz', 'description_uz')}),
         ('Russian Content', {'fields': ('name_ru', 'description_ru')}),
     )
-
-@admin.register(ProgramDay)
-class ProgramDayAdmin(ModelAdmin):
-    list_display = ('name_en', 'program', 'order')
-    list_filter = ('program',)
-    filter_horizontal = ('exercises',)
 
 @admin.register(Motivation)
 class MotivationAdmin(ModelAdmin):
@@ -146,11 +149,6 @@ class MotivationAdmin(ModelAdmin):
         if prefill:
             initial.update(prefill)
         return initial
-
-@admin.register(Diet)
-class DietAdmin(ModelAdmin):
-    list_display = ('meal_type', 'title_en')
-    list_filter = ('meal_type',)
 
 @admin.register(Supplement)
 class SupplementAdmin(ModelAdmin):
@@ -225,11 +223,11 @@ class ConversationAdmin(ModelAdmin):
 
 @admin.register(Message)
 class MessageAdmin(ModelAdmin):
-    list_display = ('id', 'sender', 'get_receiver', 'content_snippet', 'is_read', 'created_at')
-    search_fields = ('content', 'sender__email', 'sender__full_name')
-    list_filter = ('is_read', 'created_at')
-    readonly_fields = ('get_receiver', 'created_at')
+    """Standart Django jadval o'rniga — foydalanuvchi bo'yicha guruhlangan,
+    keyin suhbatdosh va chat ko'rinishiga chuqurlashadigan maxsus sahifa
+    (Bridgin admindagi Xabarlar bo'limi naqshiga o'xshab)."""
 
+    readonly_fields = ('get_receiver', 'created_at')
     fieldsets = (
         ('Asosiy ma\'lumotlar', {
             'fields': ('sender', 'get_receiver', 'content', 'is_read', 'created_at')
@@ -246,9 +244,103 @@ class MessageAdmin(ModelAdmin):
         return obj.conversation.user2 if obj.conversation.user1 == obj.sender else obj.conversation.user1
     get_receiver.short_description = "Qabul qiluvchi"
 
-    def content_snippet(self, obj):
-        return obj.content[:50] + '...' if len(obj.content) > 50 else obj.content
-    content_snippet.short_description = 'Xabar matni'
+    def changelist_view(self, request, extra_context=None):
+        user_id = request.GET.get('user_id')
+        if user_id:
+            return self._chat_view(request, user_id, request.GET.get('partner_id'))
+        return self._user_list_view(request, (request.GET.get('q') or '').strip())
+
+    def _user_list_view(self, request, q):
+        conversations = list(Conversation.objects.all())
+        messages_qs = list(Message.objects.order_by('-created_at'))
+
+        # foydalanuvchi -> u ishtirok etgan suhbat id'lari
+        user_conv_ids = defaultdict(set)
+        for c in conversations:
+            user_conv_ids[c.user1_id].add(c.pk)
+            user_conv_ids[c.user2_id].add(c.pk)
+
+        # suhbat id -> xabarlar (created_at bo'yicha kamayish tartibida, chunki
+        # messages_qs shunday saralangan)
+        messages_by_conv = defaultdict(list)
+        for m in messages_qs:
+            messages_by_conv[m.conversation_id].append(m)
+
+        users = User.objects.filter(pk__in=user_conv_ids.keys())
+        if q:
+            users = users.filter(Q(full_name__icontains=q) | Q(email__icontains=q) | Q(sent_messages__content__icontains=q)).distinct()
+
+        rows = []
+        for user in users:
+            conv_ids = user_conv_ids[user.pk]
+            total_messages = sum(len(messages_by_conv[cid]) for cid in conv_ids)
+            last_message = None
+            for cid in conv_ids:
+                msgs = messages_by_conv[cid]
+                if msgs and (last_message is None or msgs[0].created_at > last_message.created_at):
+                    last_message = msgs[0]
+            rows.append({
+                'user': user,
+                'partner_count': len(conv_ids),
+                'total_messages': total_messages,
+                'last_message': last_message,
+            })
+
+        rows.sort(key=lambda r: r['last_message'].created_at if r['last_message'] else r['user'].date_joined, reverse=True)
+
+        context = {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': 'Xabarlar',
+            'rows': rows,
+            'total_users': len(rows),
+            'total_messages': len(messages_qs),
+            'q': q,
+        }
+        return TemplateResponse(request, 'admin/message_list.html', context)
+
+    def _chat_view(self, request, user_id, partner_id):
+        user = get_object_or_404(User, pk=user_id)
+        conversations = (
+            Conversation.objects.filter(Q(user1=user) | Q(user2=user))
+            .select_related('user1', 'user2')
+            .order_by('-updated_at')
+        )
+
+        partners = []
+        for conv in conversations:
+            partner = conv.user2 if conv.user1_id == user.pk else conv.user1
+            partners.append({
+                'conversation': conv,
+                'partner': partner,
+                'last_message': conv.messages.order_by('-created_at').first(),
+            })
+
+        selected_partner = None
+        days = []
+        if partner_id:
+            selected_partner = get_object_or_404(User, pk=partner_id)
+            conv = Conversation.objects.filter(
+                Q(user1=user, user2=selected_partner) | Q(user1=selected_partner, user2=user)
+            ).first()
+            if conv:
+                thread = list(conv.messages.select_related('sender').order_by('created_at'))
+                days_map = {}
+                for m in thread:
+                    day = m.created_at.date()
+                    days_map.setdefault(day, []).append(m)
+                days = [{'date': day, 'messages': msgs} for day, msgs in days_map.items()]
+
+        context = {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': 'Xabarlar',
+            'viewed_user': user,
+            'partners': partners,
+            'selected_partner': selected_partner,
+            'days': days,
+        }
+        return TemplateResponse(request, 'admin/message_chat.html', context)
 
 
 class WorkoutSetInline(TabularInline):
@@ -270,9 +362,70 @@ class WorkoutLogAdmin(ModelAdmin):
 
 @admin.register(WorkoutExerciseEntry)
 class WorkoutExerciseEntryAdmin(ModelAdmin):
-    list_display = ('name', 'workout_log', 'exercise', 'order')
-    search_fields = ('name',)
+    """Tekis jadval o'rniga — foydalanuvchi bo'yicha guruhlangan, ichiga
+    kirilganda sessiya (kun) bo'yicha ko'rsatiladigan ko'rinish."""
+
     inlines = [WorkoutSetInline]
+
+    def changelist_view(self, request, extra_context=None):
+        user_id = request.GET.get('user_id')
+        if user_id:
+            return self._user_view(request, user_id)
+        return self._user_list_view(request, (request.GET.get('q') or '').strip())
+
+    def _user_list_view(self, request, q):
+        entries = list(
+            WorkoutExerciseEntry.objects
+            .select_related('workout_log', 'workout_log__user')
+            .order_by('-workout_log__date', '-workout_log__created_at')
+        )
+
+        user_entries = defaultdict(list)
+        for e in entries:
+            user_entries[e.workout_log.user_id].append(e)
+
+        users = User.objects.filter(pk__in=user_entries.keys())
+        if q:
+            users = users.filter(Q(full_name__icontains=q) | Q(email__icontains=q))
+
+        rows = []
+        for user in users:
+            u_entries = user_entries[user.pk]
+            rows.append({
+                'user': user,
+                'entry_count': len(u_entries),
+                'last_entry': u_entries[0] if u_entries else None,  # allaqachon -date bo'yicha saralangan
+            })
+        rows.sort(key=lambda r: r['last_entry'].workout_log.date if r['last_entry'] else date.min, reverse=True)
+
+        context = {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': 'Mashq yozuvlari',
+            'rows': rows,
+            'total_users': len(rows),
+            'total_entries': len(entries),
+            'q': q,
+        }
+        return TemplateResponse(request, 'admin/workout_entry_list.html', context)
+
+    def _user_view(self, request, user_id):
+        user = get_object_or_404(User, pk=user_id)
+        logs = (
+            WorkoutLog.objects.filter(user=user)
+            .prefetch_related('exercises__sets')
+            .order_by('-date', '-created_at')
+        )
+        sessions = [{'log': log, 'exercises': list(log.exercises.all())} for log in logs]
+
+        context = {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': 'Mashq yozuvlari',
+            'viewed_user': user,
+            'sessions': sessions,
+        }
+        return TemplateResponse(request, 'admin/workout_entry_user.html', context)
 
 class UserProgramExerciseInline(TabularInline):
     model = UserProgramExercise
@@ -283,6 +436,7 @@ class UserProgramDayInline(TabularInline):
     model = UserProgramDay
     extra = 0
     tab = True
+    inlines = [UserProgramExerciseInline]  # har bir kun ichida mashqlar ham shu sahifada tahrirlanadi
 
 @admin.register(UserProgram)
 class UserProgramAdmin(ModelAdmin):
@@ -291,14 +445,63 @@ class UserProgramAdmin(ModelAdmin):
     search_fields = ('name', 'user__email')
     inlines = [UserProgramDayInline]
 
-@admin.register(UserProgramDay)
-class UserProgramDayAdmin(ModelAdmin):
-    list_display = ('name', 'program', 'order')
-    search_fields = ('name',)
-    inlines = [UserProgramExerciseInline]
-
 @admin.register(NutritionLog)
 class NutritionLogAdmin(ModelAdmin):
-    list_display = ('user', 'date', 'name', 'calories', 'protein_g', 'carbs_g', 'fat_g')
-    list_filter = ('date',)
-    search_fields = ('user__email', 'user__full_name', 'name')
+    """Foydalanuvchi bo'yicha guruhlangan, ichiga kirilganda kunlar bo'yicha
+    ko'rsatiladigan ko'rinish (Mashq yozuvlari bilan bir xil naqsh)."""
+
+    def changelist_view(self, request, extra_context=None):
+        user_id = request.GET.get('user_id')
+        if user_id:
+            return self._user_view(request, user_id)
+        return self._user_list_view(request, (request.GET.get('q') or '').strip())
+
+    def _user_list_view(self, request, q):
+        logs = list(NutritionLog.objects.order_by('-date', '-created_at'))
+
+        user_logs = defaultdict(list)
+        for entry in logs:
+            user_logs[entry.user_id].append(entry)
+
+        users = User.objects.filter(pk__in=user_logs.keys())
+        if q:
+            users = users.filter(Q(full_name__icontains=q) | Q(email__icontains=q))
+
+        rows = []
+        for user in users:
+            u_logs = user_logs[user.pk]
+            rows.append({
+                'user': user,
+                'entry_count': len(u_logs),
+                'last_entry': u_logs[0] if u_logs else None,  # allaqachon -date bo'yicha saralangan
+            })
+        rows.sort(key=lambda r: r['last_entry'].date if r['last_entry'] else date.min, reverse=True)
+
+        context = {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': 'Ovqatlanish kundaliklari',
+            'rows': rows,
+            'total_users': len(rows),
+            'total_entries': len(logs),
+            'q': q,
+        }
+        return TemplateResponse(request, 'admin/nutrition_log_list.html', context)
+
+    def _user_view(self, request, user_id):
+        user = get_object_or_404(User, pk=user_id)
+        entries = list(NutritionLog.objects.filter(user=user).order_by('-date', '-created_at'))
+
+        days_map = {}
+        for e in entries:
+            days_map.setdefault(e.date, []).append(e)
+        days = [{'date': d, 'entries': es} for d, es in days_map.items()]
+
+        context = {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': 'Ovqatlanish kundaliklari',
+            'viewed_user': user,
+            'days': days,
+        }
+        return TemplateResponse(request, 'admin/nutrition_log_user.html', context)

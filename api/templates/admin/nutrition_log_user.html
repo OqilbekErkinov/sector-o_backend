@@ -1,0 +1,38 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div style="max-width: 800px;">
+  <a href="{% url 'admin:api_nutritionlog_changelist' %}" style="font-size:13px; opacity:.7; text-decoration:none; color:inherit;">← Barcha foydalanuvchilar</a>
+
+  <div style="display:flex; align-items:center; gap:12px; margin:14px 0 24px;">
+    <div style="width:42px; height:42px; border-radius:50%; background:#00CFFF; color:#111; font-weight:700; display:flex; align-items:center; justify-content:center; font-size:16px;">
+      {{ viewed_user.full_name|default:viewed_user.email|first|upper }}
+    </div>
+    <div>
+      <div style="font-weight:700; font-size:16px;">{{ viewed_user.full_name|default:viewed_user.email }}</div>
+      <div style="font-size:12.5px; opacity:.5;">{{ viewed_user.email }}</div>
+    </div>
+  </div>
+
+  {% for day in days %}
+    <div style="border:1px solid rgba(136,136,136,.2); border-radius:14px; margin-bottom:16px; overflow:hidden;">
+      <div style="padding:14px 18px; background:rgba(0,207,255,.06); font-weight:700;">
+        {{ day.date|date:"d F Y" }}
+      </div>
+      {% for e in day.entries %}
+        <a href="{% url 'admin:api_nutritionlog_change' e.pk %}" style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:12px 18px; border-bottom:1px solid rgba(136,136,136,.1); text-decoration:none; color:inherit;">
+          <div>
+            <span style="padding:2px 9px; border-radius:999px; background:rgba(255,255,255,.08); font-size:11px; opacity:.7; margin-right:8px;">{{ e.get_meal_type_display }}</span>
+            <span style="font-weight:600;">{{ e.name }}</span>
+          </div>
+          <div style="font-size:12.5px; opacity:.6; text-align:right; white-space:nowrap;">
+            {{ e.calories }} kcal · B{{ e.protein_g|floatformat:0 }} · U{{ e.carbs_g|floatformat:0 }} · Y{{ e.fat_g|floatformat:0 }}
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  {% empty %}
+    <div style="opacity:.5; padding:20px 0;">Bu foydalanuvchida ovqatlanish yozuvlari yo'q.</div>
+  {% endfor %}
+</div>
+{% endblock %}

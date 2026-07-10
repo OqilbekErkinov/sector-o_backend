@@ -1,0 +1,46 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div style="max-width: 800px;">
+  <a href="{% url 'admin:api_workoutexerciseentry_changelist' %}" style="font-size:13px; opacity:.7; text-decoration:none; color:inherit;">← Barcha foydalanuvchilar</a>
+
+  <div style="display:flex; align-items:center; gap:12px; margin:14px 0 24px;">
+    <div style="width:42px; height:42px; border-radius:50%; background:#00CFFF; color:#111; font-weight:700; display:flex; align-items:center; justify-content:center; font-size:16px;">
+      {{ viewed_user.full_name|default:viewed_user.email|first|upper }}
+    </div>
+    <div>
+      <div style="font-weight:700; font-size:16px;">{{ viewed_user.full_name|default:viewed_user.email }}</div>
+      <div style="font-size:12.5px; opacity:.5;">{{ viewed_user.email }}</div>
+    </div>
+  </div>
+
+  {% for session in sessions %}
+    <div style="border:1px solid rgba(136,136,136,.2); border-radius:14px; margin-bottom:16px; overflow:hidden;">
+      <div style="padding:14px 18px; background:rgba(0,207,255,.06); display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-weight:700;">{{ session.log.date|date:"d F Y" }}</span>
+        <a href="{% url 'admin:api_workoutlog_change' session.log.pk %}" style="font-size:12px; color:#00CFFF; text-decoration:none;">Sessiyani tahrirlash →</a>
+      </div>
+      {% if session.log.notes %}
+        <div style="padding:10px 18px; font-size:13px; opacity:.7; border-bottom:1px solid rgba(136,136,136,.12);">{{ session.log.notes }}</div>
+      {% endif %}
+      {% for ex in session.exercises %}
+        <div style="padding:12px 18px; border-bottom:1px solid rgba(136,136,136,.1); display:flex; justify-content:space-between; align-items:center; gap:10px;">
+          <div>
+            <span style="font-weight:600;">{{ ex.name }}</span>
+            {% if ex.muscle_group %}
+              <span style="margin-left:8px; padding:2px 9px; border-radius:999px; background:rgba(255,255,255,.08); font-size:11px; opacity:.7;">{{ ex.get_muscle_group_display }}</span>
+            {% endif %}
+          </div>
+          <div style="font-size:12.5px; opacity:.6; text-align:right;">
+            {% for s in ex.sets.all %}{{ s.weight_kg|floatformat:0 }}kg×{{ s.reps }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}
+          </div>
+        </div>
+      {% empty %}
+        <div style="padding:16px 18px; opacity:.4; font-size:13px;">Mashqlar qo'shilmagan.</div>
+      {% endfor %}
+    </div>
+  {% empty %}
+    <div style="opacity:.5; padding:20px 0;">Bu foydalanuvchida mashq yozuvlari yo'q.</div>
+  {% endfor %}
+</div>
+{% endblock %}

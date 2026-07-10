@@ -260,6 +260,8 @@ class Message(models.Model):
 
     class Meta:
         ordering = ['created_at']
+        verbose_name = 'Xabar'
+        verbose_name_plural = 'Xabarlar'
 
 # ───── Tracking: Workouts ─────
 class WorkoutLog(models.Model):

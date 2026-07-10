@@ -1,0 +1,53 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div style="max-width: 900px;">
+  <div style="display:flex; gap:10px; margin-bottom:18px; flex-wrap:wrap;">
+    <span style="padding:6px 14px; border-radius:999px; background:rgba(0,207,255,.12); color:#00CFFF; font-size:13px; font-weight:600;">
+      👥 {{ total_users }} foydalanuvchi
+    </span>
+    <span style="padding:6px 14px; border-radius:999px; background:rgba(255,255,255,.08); color:#ccc; font-size:13px; font-weight:600;">
+      🍽️ {{ total_entries }} yozuv
+    </span>
+  </div>
+
+  <form method="get" style="display:flex; gap:10px; margin-bottom:20px;">
+    <input
+      type="text" name="q" value="{{ q }}"
+      placeholder="Ism yoki email bo'yicha qidirish..."
+      style="flex:1; padding:12px 14px; border:1px solid rgba(136,136,136,.4); border-radius:10px; background:transparent; color:inherit; font:inherit;"
+    >
+    <button type="submit" style="padding:12px 22px; border:0; border-radius:10px; cursor:pointer; font-weight:600; color:#fff; background:var(--color-primary-600, #00a6cc);">
+      Qidirish
+    </button>
+  </form>
+
+  <div style="border:1px solid rgba(136,136,136,.2); border-radius:14px; overflow:hidden;">
+    {% for row in rows %}
+      <a href="?user_id={{ row.user.pk }}" style="display:flex; align-items:center; gap:14px; padding:16px 18px; text-decoration:none; color:inherit; border-bottom:1px solid rgba(136,136,136,.15);">
+        <div style="flex-shrink:0; width:40px; height:40px; border-radius:50%; background:#00CFFF; color:#111; font-weight:700; display:flex; align-items:center; justify-content:center; font-size:15px;">
+          {{ row.user.full_name|default:row.user.email|first|upper }}
+        </div>
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:600;">{{ row.user.full_name|default:row.user.email }}</div>
+          <div style="font-size:12.5px; opacity:.55;">{{ row.user.email }}</div>
+        </div>
+        <div style="flex-shrink:0; text-align:center; padding:0 10px;">
+          <div style="font-size:11px; opacity:.5;">Jami yozuv</div>
+          <div style="font-weight:600;">{{ row.entry_count }}</div>
+        </div>
+        <div style="flex-basis:220px; flex-shrink:0; min-width:0;">
+          {% if row.last_entry %}
+            <div style="font-size:13px; opacity:.75;">{{ row.last_entry.name }}</div>
+            <div style="font-size:11.5px; opacity:.45; margin-top:2px;">{{ row.last_entry.date|date:"d.m.Y" }}</div>
+          {% else %}
+            <span style="opacity:.4; font-size:13px;">—</span>
+          {% endif %}
+        </div>
+      </a>
+    {% empty %}
+      <div style="padding:30px; text-align:center; opacity:.5;">Hech narsa topilmadi.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

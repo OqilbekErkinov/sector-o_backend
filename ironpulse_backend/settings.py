@@ -92,6 +92,13 @@ DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'Sector-O <noreply@sector-o
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '')
 
+def _admin_link(name):
+    # settings.py da reverse_lazy chaqirish xavfsiz — URL faqat render vaqtida
+    # (URLconf to'liq yuklangandan keyin) hal qilinadi.
+    from django.urls import reverse_lazy
+    return reverse_lazy(name)
+
+
 UNFOLD = {
     "SITE_TITLE": "Sector-O Admin",
     "SITE_SYMBOL": "speed", # Material symbol
@@ -109,6 +116,67 @@ UNFOLD = {
             "900": "#005a70",
             "950": "#003b4a",
         },
+    },
+    "SIDEBAR": {
+        "show_search": True,
+        "show_all_applications": False,
+        "navigation": [
+            {
+                "title": "Foydalanuvchilar",
+                "collapsible": True,
+                "items": [
+                    {"title": "Foydalanuvchilar", "icon": "person", "link": _admin_link("admin:api_user_changelist")},
+                    {"title": "Foydalanuvchi dasturlari", "icon": "checklist", "link": _admin_link("admin:api_userprogram_changelist")},
+                ],
+            },
+            {
+                "title": "Mashqlar",
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {"title": "Kategoriyalar", "icon": "category", "link": _admin_link("admin:api_category_changelist")},
+                    {"title": "Mashqlar", "icon": "sports_gymnastics", "link": _admin_link("admin:api_exercise_changelist")},
+                ],
+            },
+            {
+                "title": "Dasturlar",
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {"title": "Dasturlar", "icon": "list_alt", "link": _admin_link("admin:api_program_changelist")},
+                ],
+            },
+            {
+                "title": "Kontent",
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {"title": "Qo'shimchalar", "icon": "medication", "link": _admin_link("admin:api_supplement_changelist")},
+                    {"title": "Motivatsiya", "icon": "format_quote", "link": _admin_link("admin:api_motivation_changelist")},
+                ],
+            },
+            {
+                "title": "Tizim",
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {"title": "Xabarlar", "icon": "mail", "link": _admin_link("admin:api_message_changelist")},
+                    {"title": "Tasdiqlash kodlari", "icon": "vpn_key", "link": _admin_link("admin:api_otpcode_changelist")},
+                    {"title": "Suhbatlar", "icon": "forum", "link": _admin_link("admin:api_conversation_changelist")},
+
+                ],
+            },
+            {
+                "title": "Kundalik",
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {"title": "Mashg'ulot kundaliklari", "icon": "event_note", "link": _admin_link("admin:api_workoutlog_changelist")},
+                    {"title": "Mashq yozuvlari", "icon": "checklist", "link": _admin_link("admin:api_workoutexerciseentry_changelist")},
+                    {"title": "Ovqatlanish kundaliklari", "icon": "restaurant", "link": _admin_link("admin:api_nutritionlog_changelist")},
+                ],
+            },
+        ],
     },
 }
 

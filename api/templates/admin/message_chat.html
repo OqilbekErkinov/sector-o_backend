@@ -1,0 +1,79 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div style="display:flex; gap:0; border:1px solid rgba(136,136,136,.2); border-radius:14px; overflow:hidden; height:72vh; max-width:1100px;">
+
+  {# ───── Chap: suhbatdoshlar ro'yxati ───── #}
+  <div style="width:300px; flex-shrink:0; border-right:1px solid rgba(136,136,136,.2); display:flex; flex-direction:column; overflow-y:auto;">
+    <div style="padding:16px 18px; border-bottom:1px solid rgba(136,136,136,.15);">
+      <a href="{% url 'admin:api_message_changelist' %}" style="font-size:13px; opacity:.7; text-decoration:none; color:inherit;">← Barcha foydalanuvchilar</a>
+      <div style="font-weight:700; margin-top:8px; font-size:15px;">
+        {{ viewed_user.full_name|default:viewed_user.email }}
+      </div>
+      <div style="font-size:12px; opacity:.5;">{{ viewed_user.email }}</div>
+    </div>
+
+    {% for p in partners %}
+      <a href="?user_id={{ viewed_user.pk }}&partner_id={{ p.partner.pk }}"
+         style="display:flex; gap:10px; align-items:center; padding:12px 18px; text-decoration:none; color:inherit; border-bottom:1px solid rgba(136,136,136,.1); {% if selected_partner.pk == p.partner.pk %}background:rgba(0,207,255,.1);{% endif %}">
+        <div style="flex-shrink:0; width:34px; height:34px; border-radius:50%; background:#555; color:#fff; font-weight:700; display:flex; align-items:center; justify-content:center; font-size:13px;">
+          {{ p.partner.full_name|default:p.partner.email|first|upper }}
+        </div>
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:600; font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ p.partner.full_name|default:p.partner.email }}</div>
+          {% if p.last_message %}
+            <div style="font-size:12px; opacity:.55; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ p.last_message.content }}</div>
+          {% endif %}
+        </div>
+        {% if p.last_message %}
+          <div style="flex-shrink:0; font-size:10.5px; opacity:.4;">{{ p.last_message.created_at|date:"d.m" }}</div>
+        {% endif %}
+      </a>
+    {% empty %}
+      <div style="padding:20px; opacity:.5; font-size:13px;">Suhbatdoshlar yo'q.</div>
+    {% endfor %}
+  </div>
+
+  {# ───── O'ng: chat oynasi ───── #}
+  <div style="flex:1; display:flex; flex-direction:column; min-width:0;">
+    {% if selected_partner %}
+      <div style="padding:16px 20px; border-bottom:1px solid rgba(136,136,136,.15); display:flex; align-items:center; gap:12px;">
+        <div style="width:36px; height:36px; border-radius:50%; background:#00CFFF; color:#111; font-weight:700; display:flex; align-items:center; justify-content:center;">
+          {{ selected_partner.full_name|default:selected_partner.email|first|upper }}
+        </div>
+        <div>
+          <div style="font-weight:700;">{{ selected_partner.full_name|default:selected_partner.email }}</div>
+          <div style="font-size:12px; opacity:.5;">{{ selected_partner.email }}</div>
+        </div>
+      </div>
+
+      <div style="flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:4px;">
+        {% for day in days %}
+          <div style="text-align:center; margin:14px 0 8px;">
+            <span style="font-size:11.5px; opacity:.45; background:rgba(136,136,136,.12); padding:3px 12px; border-radius:999px;">{{ day.date|date:"d F Y" }}</span>
+          </div>
+          {% for m in day.messages %}
+            {% if m.sender_id == viewed_user.pk %}
+              <div style="align-self:flex-end; max-width:65%; margin:3px 0;">
+                <div style="background:#00CFFF; color:#111; padding:9px 13px; border-radius:14px 14px 3px 14px; font-size:14px; line-height:1.4; word-wrap:break-word;">{{ m.content }}</div>
+                <div style="text-align:right; font-size:10.5px; opacity:.4; margin-top:2px;">{{ m.created_at|date:"H:i" }}</div>
+              </div>
+            {% else %}
+              <div style="align-self:flex-start; max-width:65%; margin:3px 0;">
+                <div style="background:rgba(255,255,255,.08); padding:9px 13px; border-radius:14px 14px 14px 3px; font-size:14px; line-height:1.4; word-wrap:break-word;">{{ m.content }}</div>
+                <div style="font-size:10.5px; opacity:.4; margin-top:2px;">{{ m.created_at|date:"H:i" }}</div>
+              </div>
+            {% endif %}
+          {% endfor %}
+        {% empty %}
+          <div style="margin:auto; opacity:.4;">Xabarlar yo'q.</div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div style="flex:1; display:flex; align-items:center; justify-content:center; opacity:.4; font-size:14px;">
+        Chatni ko'rish uchun chapdan suhbatdosh tanlang
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
