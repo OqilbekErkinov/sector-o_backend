@@ -7,11 +7,31 @@ from unfold.admin import ModelAdmin, TabularInline
 from unfold.decorators import action
 
 from .ai_exercise import generate_exercise
+from .ai_motivation import generate_motivation
+from .ai_supplement import generate_supplement
 from .models import (
     Exercise, Program, ProgramDay, Category, Motivation, Diet, Supplement, User, OTPCode,
     Conversation, Message, WorkoutLog, WorkoutExerciseEntry, WorkoutSet, NutritionLog,
     UserProgram, UserProgramDay, UserProgramExercise,
 )
+
+
+def _generate_or_error(request, generate_fn, brief):
+    """AI generatsiyasini bajaradi; xato bo'lsa messages.error qo'shib None qaytaradi."""
+    try:
+        return generate_fn(brief)
+    except openai.AuthenticationError:
+        messages.error(request, "OPENAI_API_KEY noto'g'ri yoki kiritilmagan — backend/.env faylini tekshiring.")
+    except openai.RateLimitError:
+        messages.error(request, "So'rovlar limiti oshdi — bir daqiqadan so'ng qayta urinib ko'ring.")
+    except openai.APIStatusError as exc:
+        messages.error(request, f"OpenAI API xatosi ({exc.status_code}): {exc.message}")
+    except openai.APIConnectionError:
+        messages.error(request, "Internet aloqasida xato — qayta urinib ko'ring.")
+    except Exception as exc:
+        messages.error(request, f"Xato: {exc}")
+    return None
+
 
 @admin.register(Category)
 class CategoryAdmin(ModelAdmin):
@@ -36,19 +56,8 @@ class ExerciseAdmin(ModelAdmin):
     def ai_add(self, request):
         brief = (request.POST.get('brief') or '').strip()
         if request.method == 'POST' and brief:
-            try:
-                data = generate_exercise(brief)
-            except openai.AuthenticationError:
-                messages.error(request, "OPENAI_API_KEY noto'g'ri yoki kiritilmagan — backend/.env faylini tekshiring.")
-            except openai.RateLimitError:
-                messages.error(request, "So'rovlar limiti oshdi — bir daqiqadan so'ng qayta urinib ko'ring.")
-            except openai.APIStatusError as exc:
-                messages.error(request, f"OpenAI API xatosi ({exc.status_code}): {exc.message}")
-            except openai.APIConnectionError:
-                messages.error(request, "Internet aloqasida xato — qayta urinib ko'ring.")
-            except Exception as exc:
-                messages.error(request, f"Xato: {exc}")
-            else:
+            data = _generate_or_error(request, generate_exercise, brief)
+            if data is not None:
                 slug = data.pop('category_slug', None)
                 category = Category.objects.filter(slug=slug).first() if slug else None
                 if category:
@@ -64,8 +73,13 @@ class ExerciseAdmin(ModelAdmin):
             'opts': self.model._meta,
             'title': "AI bilan mashq qo'shish",
             'brief': brief,
+            'intro_text': "Mashq haqida qisqacha yozing — AI nomi, tavsifi, bajarish bosqichlari, "
+                          "ishlaydigan mushaklar, keng tarqalgan xatolar va jihozlarni 3 tilda "
+                          "(o'zbek, rus, ingliz) to'ldirib, tayyor formaga o'tkazadi. Rasm va videoni "
+                          "o'sha formada o'zingiz qo'shasiz.",
+            'placeholder': "Masalan: Shtanga bilan yotib siqish, ko'krak uchun, o'rta daraja, 8-12 marta",
         }
-        return TemplateResponse(request, 'admin/api/exercise/ai_add.html', context)
+        return TemplateResponse(request, 'admin/ai_add.html', context)
 
     def get_changeform_initial_data(self, request):
         initial = super().get_changeform_initial_data(request)
@@ -99,7 +113,39 @@ class ProgramDayAdmin(ModelAdmin):
 
 @admin.register(Motivation)
 class MotivationAdmin(ModelAdmin):
-    list_display = ('quote_en', 'author')
+    list_display = ('quote_en', 'author', 'created_at')
+    actions_list = ('ai_add',)
+
+    @action(description="🤖 AI bilan qo'shish", url_path="ai-add", permissions=["add"])
+    def ai_add(self, request):
+        brief = (request.POST.get('brief') or '').strip()
+        if request.method == 'POST' and brief:
+            data = _generate_or_error(request, generate_motivation, brief)
+            if data is not None:
+                request.session['ai_motivation_prefill'] = data
+                messages.success(request, "AI tayyorladi — tekshirib saqlang.")
+                return redirect(reverse('admin:api_motivation_add'))
+        elif request.method == 'POST':
+            messages.error(request, "Mavzu yozing yoki tayyor iqtibosni joylashtiring.")
+
+        context = {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': "AI bilan iqtibos qo'shish",
+            'brief': brief,
+            'intro_text': "Mavzu yozing (masalan: 'sabr haqida', 'kuch haqida') — AI original "
+                          "motivatsion gap yozadi, 3 tilda. Yoki mavjud iqtibosni muallifi bilan "
+                          "joylashtiring — AI uni aniq tarjima qiladi.",
+            'placeholder': "Masalan: kuch va sabr haqida qisqa gap",
+        }
+        return TemplateResponse(request, 'admin/ai_add.html', context)
+
+    def get_changeform_initial_data(self, request):
+        initial = super().get_changeform_initial_data(request)
+        prefill = request.session.pop('ai_motivation_prefill', None)
+        if prefill:
+            initial.update(prefill)
+        return initial
 
 @admin.register(Diet)
 class DietAdmin(ModelAdmin):
@@ -110,12 +156,44 @@ class DietAdmin(ModelAdmin):
 class SupplementAdmin(ModelAdmin):
     list_display = ('name_en', 'name_uz', 'name_ru')
     search_fields = ('name_en', 'name_uz', 'name_ru')
+    actions_list = ('ai_add',)
     fieldsets = (
         ('Basic Info', {'fields': ('img',)}),
         ('English Content', {'fields': ('name_en', 'benefits_en', 'origin_en', 'dosage_en', 'timing_en', 'sources_en')}),
         ('Uzbek Content', {'fields': ('name_uz', 'benefits_uz', 'origin_uz', 'dosage_uz', 'timing_uz', 'sources_uz')}),
         ('Russian Content', {'fields': ('name_ru', 'benefits_ru', 'origin_ru', 'dosage_ru', 'timing_ru', 'sources_ru')}),
     )
+
+    @action(description="🤖 AI bilan qo'shish", url_path="ai-add", permissions=["add"])
+    def ai_add(self, request):
+        brief = (request.POST.get('brief') or '').strip()
+        if request.method == 'POST' and brief:
+            data = _generate_or_error(request, generate_supplement, brief)
+            if data is not None:
+                request.session['ai_supplement_prefill'] = data
+                messages.success(request, "AI ma'lumotlarni to'ldirdi — tekshirib, rasm qo'shib saqlang.")
+                return redirect(reverse('admin:api_supplement_add'))
+        elif request.method == 'POST':
+            messages.error(request, "Qo'shimcha nomini yozing (masalan: protein, kreatin).")
+
+        context = {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': "AI bilan qo'shimcha qo'shish",
+            'brief': brief,
+            'intro_text': "Sport qo'shimchasi nomini yozing (masalan: kreatin, protein, BCAA) — AI "
+                          "foydasi, tarkibi, dozasi, qachon ichish kerakligi va manbalarini 3 tilda "
+                          "to'ldiradi. Rasmni o'zingiz qo'shasiz.",
+            'placeholder': "Masalan: Kreatin monogidrat",
+        }
+        return TemplateResponse(request, 'admin/ai_add.html', context)
+
+    def get_changeform_initial_data(self, request):
+        initial = super().get_changeform_initial_data(request)
+        prefill = request.session.pop('ai_supplement_prefill', None)
+        if prefill:
+            initial.update(prefill)
+        return initial
 
 @admin.register(User)
 class UserAdmin(ModelAdmin):

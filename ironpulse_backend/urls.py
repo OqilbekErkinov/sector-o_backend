@@ -28,3 +28,6 @@ urlpatterns = [
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+handler404 = 'api.error_views.api_404'
+handler500 = 'api.error_views.api_500'

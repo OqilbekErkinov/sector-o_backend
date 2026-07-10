@@ -3,9 +3,7 @@
 {% block content %}
 <div style="max-width: 760px;">
   <p style="margin-bottom: 14px; opacity: .8; line-height: 1.6;">
-    Mashq haqida qisqacha yozing — AI nomi, tavsifi, bajarish bosqichlari, ishlaydigan mushaklar,
-    keng tarqalgan xatolar va jihozlarni <b>3 tilda</b> (o'zbek, rus, ingliz) to'ldirib,
-    tayyor formaga o'tkazadi. Rasm va videoni o'sha formada o'zingiz qo'shasiz.
+    {{ intro_text }}
   </p>
 
   <form method="post" id="ai-add-form">
@@ -14,7 +12,7 @@
       name="brief"
       rows="5"
       required
-      placeholder="Masalan: Shtanga bilan yotib siqish, ko'krak uchun, o'rta daraja, 8-12 marta"
+      placeholder="{{ placeholder }}"
       style="width:100%; padding:12px; border:1px solid rgba(136,136,136,.5); border-radius:8px; background:transparent; color:inherit; font:inherit; resize:vertical;"
     >{{ brief }}</textarea>
 

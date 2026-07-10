@@ -4,11 +4,7 @@ Admin qisqacha ma'lumot beradi (odatda o'zbekcha), AI qolgan barcha
 maydonlarni 3 tilda (uz/ru/en) to'ldirib, Exercise modeliga mos JSON qaytaradi.
 """
 
-import json
-
-from openai import OpenAI
-
-MODEL = "gpt-5.5"
+from .ai_content import generate_json
 
 SYSTEM_PROMPT = """\
 You are a professional fitness content writer for "Sector-O", a gym/workout app used in Uzbekistan.
@@ -72,24 +68,4 @@ def generate_exercise(brief: str) -> dict:
     from .models import Category
 
     category_slugs = list(Category.objects.values_list("slug", flat=True))
-
-    client = OpenAI()  # OPENAI_API_KEY .env orqali o'qiladi
-    response = client.responses.create(
-        model=MODEL,
-        reasoning={"effort": "high"},
-        instructions=SYSTEM_PROMPT,
-        input=brief,
-        text={
-            "format": {
-                "type": "json_schema",
-                "name": "exercise_entry",
-                "schema": _build_schema(category_slugs),
-                "strict": True,
-            }
-        },
-    )
-
-    text = response.output_text
-    if not text:
-        raise RuntimeError("AI javob qaytarmadi — qayta urinib ko'ring.")
-    return json.loads(text)
+    return generate_json(SYSTEM_PROMPT, _build_schema(category_slugs), "exercise_entry", brief)

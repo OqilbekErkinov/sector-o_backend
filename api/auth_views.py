@@ -1,5 +1,3 @@
-import logging
-
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -10,9 +8,9 @@ from django.template.loader import render_to_string
 from django.conf import settings
 from rest_framework_simplejwt.tokens import RefreshToken
 from api.models import OTPCode
+from api.telegram_utils import send_telegram_message
 
 User = get_user_model()
-logger = logging.getLogger(__name__)
 
 
 def get_user_lang(request):
@@ -302,22 +300,12 @@ class VerifyEmailView(APIView):
         user.save()
 
         # Send Telegram notification (only if configured via env vars)
-        if settings.TELEGRAM_BOT_TOKEN and settings.TELEGRAM_CHAT_ID:
-            try:
-                import urllib.request
-                import urllib.parse
-                text = f"🚀 Yangi foydalanuvchi tizimga qo'shildi!\n\n" \
-                       f"👤 Ismi: {user.full_name}\n" \
-                       f"📧 Email: {user.email}\n"
-                if user.phone:
-                    text += f"📱 Telefon: {user.phone}"
-
-                url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMessage"
-                data = urllib.parse.urlencode({'chat_id': settings.TELEGRAM_CHAT_ID, 'text': text}).encode('utf-8')
-                req = urllib.request.Request(url, data=data)
-                urllib.request.urlopen(req, timeout=5)
-            except Exception:
-                logger.exception("Failed to send Telegram new-user notification for %s", user.email)
+        text = f"🚀 Yangi foydalanuvchi tizimga qo'shildi!\n\n" \
+               f"👤 Ismi: {user.full_name}\n" \
+               f"📧 Email: {user.email}\n"
+        if user.phone:
+            text += f"📱 Telefon: {user.phone}"
+        send_telegram_message(text)
 
         tokens = get_tokens_for_user(user)
         return Response({

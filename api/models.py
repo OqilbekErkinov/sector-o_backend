@@ -182,6 +182,7 @@ class Motivation(models.Model):
     quote_ru = models.TextField(default='', blank=True)
     quote_en = models.TextField(default='')
     author = models.CharField(max_length=100, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
 
     def __str__(self):
         return self.quote_en[:50]
