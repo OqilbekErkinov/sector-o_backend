@@ -1,16 +1,21 @@
+import logging
 from collections import defaultdict
 from datetime import date
+from threading import Thread
 
 import openai
 from django.contrib import admin, messages
+from django.core.files.base import ContentFile
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect
 from django.template.response import TemplateResponse
 from django.urls import reverse
+from django.utils.text import slugify
 from unfold.admin import ModelAdmin, StackedInline, TabularInline
 from unfold.decorators import action
 
 from .ai_exercise import generate_exercise
+from .ai_image import generate_exercise_image_bytes
 from .ai_motivation import generate_motivation
 from .ai_supplement import generate_supplement
 from .models import (
@@ -18,6 +23,9 @@ from .models import (
     Conversation, Message, WorkoutLog, WorkoutExerciseEntry, WorkoutSet, NutritionLog,
     UserProgram, UserProgramDay, UserProgramExercise,
 )
+from .youtube_search import search_exercise_videos
+
+logger = logging.getLogger('api')
 
 
 def _generate_or_error(request, generate_fn, brief):
@@ -26,8 +34,15 @@ def _generate_or_error(request, generate_fn, brief):
         return generate_fn(brief)
     except openai.AuthenticationError:
         messages.error(request, "OPENAI_API_KEY noto'g'ri yoki kiritilmagan — backend/.env faylini tekshiring.")
-    except openai.RateLimitError:
-        messages.error(request, "So'rovlar limiti oshdi — bir daqiqadan so'ng qayta urinib ko'ring.")
+    except openai.RateLimitError as exc:
+        if exc.code == 'insufficient_quota':
+            messages.error(
+                request,
+                "OpenAI hisobingizda mablag' tugagan — platform.openai.com/settings/organization/billing "
+                "sahifasidan balansni to'ldiring. Bu vaqtinchalik limit emas, kutish yordam bermaydi."
+            )
+        else:
+            messages.error(request, "So'rovlar limiti oshdi — bir daqiqadan so'ng qayta urinib ko'ring.")
     except openai.APIStatusError as exc:
         messages.error(request, f"OpenAI API xatosi ({exc.status_code}): {exc.message}")
     except openai.APIConnectionError:
@@ -49,6 +64,7 @@ class ExerciseAdmin(ModelAdmin):
     search_fields = ('name_en', 'name_uz', 'name_ru')
     readonly_fields = ('views',)
     actions_list = ('ai_add',)
+    actions_detail = ('ai_generate_image', 'ai_find_video')
     fieldsets = (
         ('Basic Info', {'fields': ('category', 'difficulty', 'duration', 'recommended_sets', 'img', 'video', 'equipment', 'views')}),
         ('English Content', {'fields': ('name_en', 'description_en', 'instructions_en', 'muscles_en', 'mistakes_en')}),
@@ -91,6 +107,70 @@ class ExerciseAdmin(ModelAdmin):
         if prefill:
             initial.update(prefill)
         return initial
+
+    @action(description="🎨 AI bilan rasm yaratish", url_path="ai-image", permissions=["change"])
+    def ai_generate_image(self, request, object_id):
+        exercise = get_object_or_404(Exercise, pk=object_id)
+
+        if request.method == 'POST':
+            name = exercise.name_en
+            description = exercise.description_en
+
+            def worker(pk, name, description):
+                try:
+                    data = generate_exercise_image_bytes(name, description)
+                except Exception:
+                    logger.exception("AI rasm generatsiyasida xato (exercise=%s)", pk)
+                    return
+                ex = Exercise.objects.filter(pk=pk).first()
+                if ex:
+                    ex.img.save(f"{slugify(name)}-ai.png", ContentFile(data), save=True)
+
+            Thread(target=worker, args=(exercise.pk, name, description), daemon=True).start()
+            messages.success(
+                request,
+                "Rasm generatsiyasi fon rejimida boshlandi — bu ~1-2 daqiqa davom etadi. "
+                "Sahifani birozdan keyin yangilab ko'ring."
+            )
+            return redirect(reverse('admin:api_exercise_change', args=[object_id]))
+
+        context = {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': "AI bilan rasm yaratish",
+            'object': exercise,
+        }
+        return TemplateResponse(request, 'admin/ai_image_confirm.html', context)
+
+    @action(description="📹 AI bilan video topish", url_path="ai-video", permissions=["change"])
+    def ai_find_video(self, request, object_id):
+        exercise = get_object_or_404(Exercise, pk=object_id)
+
+        if request.method == 'POST':
+            video_url = (request.POST.get('video_url') or '').strip()
+            if video_url:
+                exercise.video = video_url
+                exercise.save(update_fields=['video'])
+                messages.success(request, "Video havolasi saqlandi.")
+                return redirect(reverse('admin:api_exercise_change', args=[object_id]))
+            messages.error(request, "Video tanlanmadi.")
+
+        query = f"{exercise.name_en} proper form tutorial"
+        candidates = []
+        try:
+            candidates = search_exercise_videos(query)
+        except Exception as exc:
+            messages.error(request, f"YouTube qidiruvida xato: {exc}")
+
+        context = {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': "AI bilan video topish",
+            'object': exercise,
+            'candidates': candidates,
+            'query': query,
+        }
+        return TemplateResponse(request, 'admin/ai_video_pick.html', context)
 
 class ProgramDayInline(StackedInline):
     # StackedInline — TabularInline emas — chunki filter_horizontal vidjeti

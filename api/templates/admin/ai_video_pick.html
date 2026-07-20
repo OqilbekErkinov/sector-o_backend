@@ -1,0 +1,39 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div style="max-width: 760px;">
+  <p style="margin-bottom: 18px; opacity: .8; line-height: 1.6;">
+    <strong>{{ object.name_en }}</strong> uchun YouTube'dan qidirilgan natijalar
+    (so'rov: <em>"{{ query }}"</em>). Mos videoni tanlang — havola avtomatik saqlanadi.
+  </p>
+
+  {% if object.video %}
+    <div style="margin-bottom:18px; padding:12px; border-radius:10px; background:rgba(255,255,255,.06); font-size:13px;">
+      Joriy video: <a href="{{ object.video }}" target="_blank" style="color:#00CFFF;">{{ object.video }}</a>
+    </div>
+  {% endif %}
+
+  <div style="display:flex; flex-direction:column; gap:12px;">
+    {% for c in candidates %}
+      <form method="post" style="display:flex; gap:14px; align-items:center; padding:12px; border:1px solid rgba(136,136,136,.2); border-radius:12px;">
+        {% csrf_token %}
+        <input type="hidden" name="video_url" value="{{ c.url }}">
+        <img src="{{ c.thumbnail }}" alt="" style="width:120px; height:68px; object-fit:cover; border-radius:8px; flex-shrink:0;">
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:600; font-size:14px;">{{ c.title }}</div>
+          <div style="font-size:12.5px; opacity:.55; margin-top:2px;">{{ c.channel }}</div>
+          <a href="{{ c.url }}" target="_blank" style="font-size:12px; color:#00CFFF; text-decoration:none;">Ko'rish →</a>
+        </div>
+        <button
+          type="submit"
+          style="flex-shrink:0; padding:9px 18px; border:0; border-radius:9px; cursor:pointer; font-weight:600; color:#111; background:#00CFFF; font-size:13px;"
+        >
+          Tanlash
+        </button>
+      </form>
+    {% empty %}
+      <div style="opacity:.5; padding:20px 0;">Hech qanday video topilmadi.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
